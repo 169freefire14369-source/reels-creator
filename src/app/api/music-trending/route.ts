@@ -1,29 +1,33 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
-const JIOSAAVN_API = "https://saavn.dev/api";
+const JIOSAAVN_BASE = "https://www.jiosaavn.com/api.php";
 
-export async function GET(req: NextRequest) {
-  const language = req.nextUrl.searchParams.get("lang") || "hindi,english";
-
+export async function GET() {
   try {
-    // Get trending/chart songs
-    const res = await fetch(
-      `${JIOSAAVN_API}/search/songs?query=trending+hits+2024&limit=20`,
-      { next: { revalidate: 3600 } } // Cache for 1 hour
-    );
+    // Fetch trending/popular songs from JioSaavn charts
+    const url = `${JIOSAAVN_BASE}?__call=search.getResults&_format=json&q=trending+bollywood+hits&p=1&n=20`;
+
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json",
+      },
+      next: { revalidate: 3600 },
+    });
 
     if (!res.ok) throw new Error(`API error: ${res.status}`);
+
     const data = await res.json();
-    const songs = data?.data?.results || [];
+    const songs = data?.results || [];
 
     const results = songs.map((song: any) => ({
-      id: song.id,
-      title: song.name || "Unknown",
-      artist: song.artists?.primary?.map((a: any) => a.name).join(", ") || "Unknown",
-      album: song.album?.name || "",
-      duration: song.duration || 0,
-      previewUrl: getBestUrl(song.downloadUrl) || "",
-      thumbnail: getBestImg(song.image) || "",
+      id: song.id || `trending-${Date.now()}-${Math.random()}`,
+      title: cleanText(song.title || song.song || "Unknown"),
+      artist: cleanText(song.more_info?.singers || song.more_info?.primary_artists || "Unknown"),
+      album: cleanText(song.more_info?.album || song.album || ""),
+      duration: parseInt(song.more_info?.duration || song.duration || "0"),
+      previewUrl: song.more_info?.vlink || "",
+      thumbnail: song.image || "",
       language: song.language || "",
     }));
 
@@ -34,19 +38,13 @@ export async function GET(req: NextRequest) {
   }
 }
 
-function getBestUrl(dl: any): string {
-  if (!dl) return "";
-  if (Array.isArray(dl)) return dl[dl.length - 1]?.url || dl[dl.length - 1]?.link || "";
-  if (typeof dl === "string") return dl;
-  return "";
-}
-
-function getBestImg(img: any): string {
-  if (!img) return "";
-  if (Array.isArray(img)) {
-    const m = img.find((i: any) => i.quality === "150x150") || img[1] || img[0];
-    return m?.url || m?.link || "";
-  }
-  if (typeof img === "string") return img;
-  return "";
+function cleanText(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#039;/g, "'")
+    .replace(/<[^>]*>/g, "");
 }
